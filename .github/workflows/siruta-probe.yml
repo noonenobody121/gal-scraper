@@ -1,4 +1,4 @@
-name: INS SIRUTA fetch
+name: SIRUTA mirror probe
 
 on:
   workflow_dispatch:
@@ -15,18 +15,38 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Download official INS SIRUTA annual registry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect maintained SIRUTA Python package
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p siruta
-          url='https://data.gov.ro/dataset/06950cb3-41b7-48b8-91bb-4a329786d178/resource/2a9be5d1-f74f-40f1-b549-b6c6cfcda968/download/siruta_an_2025.csv'
-          curl -fL --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 180 "$url" -o siruta/SIRUTA_AN_2025.csv
-          wc -c siruta/SIRUTA_AN_2025.csv
-          sha256sum siruta/SIRUTA_AN_2025.csv
-          head -3 siruta/SIRUTA_AN_2025.csv || true
+          python -m pip install -q sirutalib==1.3.0
+          python - <<'PY'
+          import pathlib, sirutalib, shutil
+          root=pathlib.Path(sirutalib.__file__).resolve().parent
+          print('package root', root)
+          files=[]
+          for base in {root, root.parent}:
+              files += list(base.rglob('siruta*.csv'))
+              files += list(base.rglob('SIRUTA*.csv'))
+          seen=[]
+          for p in files:
+              if p.is_file() and p not in seen:
+                  seen.append(p); print(p, p.stat().st_size)
+          if not seen:
+              raise SystemExit('no SIRUTA CSV found in package')
+          src=max(seen,key=lambda p:p.stat().st_size)
+          shutil.copy2(src,'siruta/siruta.csv')
+          print('selected',src)
+          PY
+          wc -c siruta/siruta.csv
+          sha256sum siruta/siruta.csv
+          head -3 siruta/siruta.csv || true
       - uses: actions/upload-artifact@v4
         with:
-          name: siruta-an-2025
-          path: siruta/SIRUTA_AN_2025.csv
+          name: siruta-maintained-mirror
+          path: siruta/siruta.csv
           retention-days: 2
