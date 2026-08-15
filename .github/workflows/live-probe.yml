@@ -1,0 +1,39 @@
+name: AFIR live markup probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/live-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch raw AFIR pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/Gal/Lista?h=1' -o probe/gal-list.html
+          curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/GalApel/Lista?g=02092c52-f3f8-4fcf-b724-362b4140bf1f&nrPagina=1' -o probe/call-list.html
+          curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/Gal?g=1684239d-0266-41ef-8460-f8628a113e4b' -o probe/gal-detail.html
+          echo "gal-list bytes=$(wc -c < probe/gal-list.html)"
+          echo "call-list bytes=$(wc -c < probe/call-list.html)"
+          echo "Cod Autorizare occurrences=$(grep -oi 'Cod Autorizare' probe/gal-list.html | wc -l)"
+          echo "Apeluri occurrences=$(grep -oi 'Apeluri' probe/gal-list.html | wc -l)"
+          echo "VizualizareApelSelectie occurrences=$(grep -oi 'VizualizareApelSelectie' probe/call-list.html | wc -l)"
+          echo "idApelSelectie occurrences=$(grep -oi 'idApelSelectie' probe/call-list.html | wc -l)"
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: afir-live-probe
+          path: probe/**
+          retention-days: 2
