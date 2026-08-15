@@ -32,10 +32,12 @@ jobs:
           set -euo pipefail
           mkdir -p ci-src
           echo 'Chunk SHA256:'
-          sha256sum ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03.b64 ci/chunks/04.b64 ci/chunks/05.b64
-          cat ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03.b64 ci/chunks/04.b64 ci/chunks/05.b64 | base64 -d > /tmp/gal_scraper_ci_source.zip
+          sha256sum ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03a.b64 ci/chunks/03b.b64 ci/chunks/04.b64 ci/chunks/05.b64
+          cat ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03a.b64 ci/chunks/03b.b64 ci/chunks/04.b64 ci/chunks/05.b64 | base64 -d > /tmp/gal_scraper_ci_source.zip
           echo "Archive bytes: $(stat -c%s /tmp/gal_scraper_ci_source.zip)"
-          sha256sum /tmp/gal_scraper_ci_source.zip
+          actual_sha=$(sha256sum /tmp/gal_scraper_ci_source.zip | awk '{print $1}')
+          echo "Archive SHA256: $actual_sha"
+          test "$actual_sha" = "57d34e116ec97d48d3748a0283331c3f8d223ac7d00d88c8822e7453f3bb826b"
           unzip -t /tmp/gal_scraper_ci_source.zip
           unzip -q /tmp/gal_scraper_ci_source.zip -d ci-src
           test -f ci-src/ci_full_extract.py
