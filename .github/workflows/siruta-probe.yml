@@ -1,0 +1,32 @@
+name: INS SIRUTA fetch
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/siruta-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official INS SIRUTA annual registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p siruta
+          url='https://data.gov.ro/dataset/06950cb3-41b7-48b8-91bb-4a329786d178/resource/2a9be5d1-f74f-40f1-b549-b6c6cfcda968/download/siruta_an_2025.csv'
+          curl -fL --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 180 "$url" -o siruta/SIRUTA_AN_2025.csv
+          wc -c siruta/SIRUTA_AN_2025.csv
+          sha256sum siruta/SIRUTA_AN_2025.csv
+          head -3 siruta/SIRUTA_AN_2025.csv || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: siruta-an-2025
+          path: siruta/SIRUTA_AN_2025.csv
+          retention-days: 2
