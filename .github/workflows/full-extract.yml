@@ -1,0 +1,74 @@
+name: AFIR full national extraction
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/gal_scraper_ci_source.zip'
+      - '.github/workflows/full-extract.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: afir-full-extraction
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Unpack extractor
+        run: |
+          mkdir -p ci-src
+          unzip -q ci/gal_scraper_ci_source.zip -d ci-src
+
+      - name: Install dependencies
+        working-directory: ci-src
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run full crawl
+        id: crawl
+        continue-on-error: true
+        working-directory: ci-src
+        shell: bash
+        run: |
+          set +e
+          python ci_full_extract.py 2>&1 | tee output.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Preserve runner log
+        if: always()
+        run: |
+          mkdir -p ci-src/output
+          cp ci-src/output.log ci-src/output/workflow_output.log || true
+
+      - name: Upload extraction artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afir-national-extraction
+          path: ci-src/output/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Enforce reconciliation result
+        if: always()
+        shell: bash
+        run: |
+          code='${{ steps.crawl.outputs.exit_code }}'
+          if [ -z "$code" ]; then code=99; fi
+          exit "$code"
