@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ci/gal_scraper_ci_source.zip'
+      - 'ci/chunks/**'
       - '.github/workflows/full-extract.yml'
 
 permissions:
@@ -26,10 +26,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Unpack extractor
+      - name: Reconstruct and verify extractor
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p ci-src
-          unzip -q ci/gal_scraper_ci_source.zip -d ci-src
+          cat ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03.b64 ci/chunks/04.b64 ci/chunks/05.b64 | base64 -d > /tmp/gal_scraper_ci_source.zip
+          echo "Archive bytes: $(stat -c%s /tmp/gal_scraper_ci_source.zip)"
+          unzip -t /tmp/gal_scraper_ci_source.zip
+          unzip -q /tmp/gal_scraper_ci_source.zip -d ci-src
+          test -f ci-src/ci_full_extract.py
+          test -f ci-src/requirements.txt
 
       - name: Install dependencies
         working-directory: ci-src
