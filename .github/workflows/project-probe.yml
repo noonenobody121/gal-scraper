@@ -1,0 +1,34 @@
+name: AFIR project markup probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/project-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch project list
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-project
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          GID='02092c52-f3f8-4fcf-b724-362b4140bf1f'
+          for u in \
+            "https://gal.afir.ro/Proiect/Index?g=$GID" \
+            "https://gal.afir.ro/Proiect/Lista?g=$GID&nrPagina=1"; do
+              n=$(echo "$u"|sha256sum|cut -c1-8); curl -fLsS --retry 2 -A "$UA" "$u" -o "probe-project/$n.html" || true
+          done
+          for f in probe-project/*.html; do
+            echo ===$f===; wc -c "$f"; grep -Eoi '(Lista[^<]{0,80}|proiect[^<]{0,80}|href="[^"]*Proiect[^"]*"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})' "$f" | head -100 || true
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afir-project-probe
+          path: probe-project/**
+          retention-days: 2
