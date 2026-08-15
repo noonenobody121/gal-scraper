@@ -7,7 +7,8 @@ on:
     paths:
       - 'ci/chunks/**'
       - 'ci/apply_live_fixes.py'
-      - 'ci/ci_full_extract_v2.py'
+      - 'ci/apply_final_fixes.py'
+      - 'ci/ci_full_extract_v3.py'
       - '.github/workflows/full-extract.yml'
 
 permissions:
@@ -23,7 +24,6 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -32,25 +32,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf ci-src
-          mkdir -p ci-src
+          rm -rf ci-src && mkdir -p ci-src
           cat ci/chunks/00.b64 ci/chunks/01.b64 ci/chunks/02.b64 ci/chunks/03a.b64 ci/chunks/03b.b64 ci/chunks/04.b64 ci/chunks/05.b64 | base64 -d > /tmp/gal_scraper_ci_source.zip
           actual_sha=$(sha256sum /tmp/gal_scraper_ci_source.zip | awk '{print $1}')
-          echo "Base archive SHA256: $actual_sha"
           test "$actual_sha" = "57d34e116ec97d48d3748a0283331c3f8d223ac7d00d88c8822e7453f3bb826b"
           unzip -tq /tmp/gal_scraper_ci_source.zip
           unzip -q /tmp/gal_scraper_ci_source.zip -d ci-src
           python ci/apply_live_fixes.py ci-src
+          python ci/apply_final_fixes.py ci-src
+          cp ci/ci_full_extract_v3.py ci-src/ci_full_extract.py
           python -m compileall -q ci-src/afir_gal ci-src/ci_full_extract.py
           grep -q 'ListaApeluri' ci-src/afir_gal/crawler.py
           grep -q 'data-gal-id' ci-src/afir_gal/manifest.py
-          test -f ci-src/ci_full_extract.py
 
-      - name: Install dependencies
+      - name: Install dependencies and SIRUTA registry mirror
         working-directory: ci-src
+        shell: bash
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt sirutalib==1.3.0
+          python - <<'PY'
+          import pathlib, shutil, sirutalib
+          root=pathlib.Path(sirutalib.__file__).resolve().parent
+          files=[]
+          for base in {root,root.parent}:
+              files += list(base.rglob('siruta*.csv')) + list(base.rglob('SIRUTA*.csv'))
+          files=[p for p in files if p.is_file()]
+          if not files: raise SystemExit('No SIRUTA CSV in sirutalib package')
+          src=max(files,key=lambda p:p.stat().st_size)
+          shutil.copy2(src,'siruta.csv')
+          print('SIRUTA mirror',src,'rows',sum(1 for _ in open('siruta.csv',encoding='utf-8-sig',errors='replace')))
+          PY
 
       - name: Run full crawl
         id: crawl
@@ -74,7 +87,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: afir-national-extraction
+          name: afir-national-extraction-final
           path: ci-src/output/**
           if-no-files-found: warn
           retention-days: 7
