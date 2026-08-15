@@ -22,15 +22,22 @@ jobs:
           set -euo pipefail
           mkdir -p probe
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36'
+          GID='02092c52-f3f8-4fcf-b724-362b4140bf1f'
           curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/Gal/Lista?h=1' -o probe/gal-list.html
-          curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/GalApel/Lista?g=02092c52-f3f8-4fcf-b724-362b4140bf1f&nrPagina=1' -o probe/call-list.html
-          curl -fLsS --retry 2 -A "$UA" 'https://gal.afir.ro/Gal?g=1684239d-0266-41ef-8460-f8628a113e4b' -o probe/gal-detail.html
+          curl -fLsS --retry 2 -A "$UA" "https://gal.afir.ro/GalApel/Lista?g=$GID&nrPagina=1" -o probe/call-list-wrapper.html
+          for p in 1 2 3; do
+            curl -fLsS --retry 2 -A "$UA" "https://gal.afir.ro/GalApel/ListaApeluri?galId=$GID&cautareApelSelectie=&nrPagina=$p&esteRequestDeLaTriggerOnLoad=true" -o "probe/call-list-$p.html"
+          done
           echo "gal-list bytes=$(wc -c < probe/gal-list.html)"
-          echo "call-list bytes=$(wc -c < probe/call-list.html)"
           echo "Cod Autorizare occurrences=$(grep -oi 'Cod Autorizare' probe/gal-list.html | wc -l)"
-          echo "Apeluri occurrences=$(grep -oi 'Apeluri' probe/gal-list.html | wc -l)"
-          echo "VizualizareApelSelectie occurrences=$(grep -oi 'VizualizareApelSelectie' probe/call-list.html | wc -l)"
-          echo "idApelSelectie occurrences=$(grep -oi 'idApelSelectie' probe/call-list.html | wc -l)"
+          for p in 1 2 3; do
+            f="probe/call-list-$p.html"
+            echo "page=$p bytes=$(wc -c < "$f") Vizualizare=$(grep -oi 'VizualizareApelSelectie' "$f" | wc -l) ids=$(grep -oi 'idApelSelectie' "$f" | wc -l) UUIDs=$(grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' "$f" | sort -u | wc -l)"
+          done
+          echo 'Canonical href samples:'
+          grep -Eo 'href="[^"]*(VizualizareApelSelectie|idApelSelectie)[^"]*"' probe/call-list-1.html | head -20 || true
+          echo 'Pagination samples:'
+          grep -Eo '(nrPagina|pagina|page)[^<>" ]{0,80}' probe/call-list-1.html | head -30 || true
       - name: Upload probe
         uses: actions/upload-artifact@v4
         with:
