@@ -8,6 +8,8 @@ on:
       - 'ci/chunks/**'
       - 'ci/apply_live_fixes.py'
       - 'ci/apply_final_fixes.py'
+      - 'ci/apply_cleanup_fixes.py'
+      - 'ci/test_cleanup_regression.py'
       - 'ci/ci_full_extract_v3.py'
       - '.github/workflows/full-extract.yml'
 
@@ -40,10 +42,14 @@ jobs:
           unzip -q /tmp/gal_scraper_ci_source.zip -d ci-src
           python ci/apply_live_fixes.py ci-src
           python ci/apply_final_fixes.py ci-src
+          python ci/apply_cleanup_fixes.py ci-src
           cp ci/ci_full_extract_v3.py ci-src/ci_full_extract.py
-          python -m compileall -q ci-src/afir_gal ci-src/ci_full_extract.py
+          cp ci/test_cleanup_regression.py ci-src/test_cleanup_regression.py
+          python -m compileall -q ci-src/afir_gal ci-src/ci_full_extract.py ci-src/test_cleanup_regression.py
           grep -q 'ListaApeluri' ci-src/afir_gal/crawler.py
           grep -q 'data-gal-id' ci-src/afir_gal/manifest.py
+          grep -q 'intervention_list' ci-src/afir_gal/parsers.py
+          grep -q 'UNCODED_INTERVENTION' ci-src/afir_gal/quality.py
 
       - name: Install dependencies and SIRUTA registry mirror
         working-directory: ci-src
@@ -64,6 +70,13 @@ jobs:
           shutil.copy2(src,'siruta.csv')
           print('SIRUTA mirror',src,'rows',sum(1 for _ in open('siruta.csv',encoding='utf-8-sig',errors='replace')))
           PY
+
+      - name: Run intervention contamination regression
+        working-directory: ci-src
+        shell: bash
+        run: |
+          set -euo pipefail
+          python test_cleanup_regression.py
 
       - name: Run full crawl
         id: crawl
@@ -87,7 +100,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: afir-national-extraction-final
+          name: afir-national-extraction-clean
           path: ci-src/output/**
           if-no-files-found: warn
           retention-days: 7
