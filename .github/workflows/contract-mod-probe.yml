@@ -1,0 +1,66 @@
+name: AFIR contract modification public-surface probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/contract-mod-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch representative modification pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-contract
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36 independent-QA'
+          ids=(
+            d4228448-2a44-455a-a7e2-432cd7775c18
+            e4a86917-7b56-432b-8d6e-1b9fd94f0b78
+            842fbd5d-de19-4749-a068-e123a428d7d3
+            7d22fb3f-4899-4c0f-b8a3-de21aaf05c5d
+            8c4a9e5d-2ae5-429e-9fc6-b3ac3777bf9a
+          )
+          : > probe-contract/status.tsv
+          for gid in "${ids[@]}"; do
+            url="https://gal.afir.ro/ModificareContract/ListaModificariContracte?idGal=$gid"
+            code=$(curl -LsS -A "$UA" -o "probe-contract/$gid.html" -w '%{http_code}' "$url")
+            final=$(curl -LsS -A "$UA" -o /dev/null -w '%{url_effective}' "$url")
+            printf '%s\t%s\t%s\n' "$gid" "$code" "$final" >> probe-contract/status.tsv
+          done
+          cat probe-contract/status.tsv
+          python - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          import json
+          out=[]
+          for p in Path('probe-contract').glob('*.html'):
+              s=BeautifulSoup(p.read_text(encoding='utf-8',errors='replace'),'html.parser')
+              text=' '.join(s.get_text(' ',strip=True).split())
+              tables=[]
+              for table in s.find_all('table'):
+                  rows=[]
+                  for tr in table.find_all('tr'):
+                      cells=[' '.join(x.get_text(' ',strip=True).split()) for x in tr.find_all(['th','td'])]
+                      if cells: rows.append(cells)
+                  if rows: tables.append(rows)
+              out.append({'gal_id':p.stem,'title':s.title.get_text(' ',strip=True) if s.title else None,'text_head':text[:1800],'tables':tables})
+          Path('probe-contract/parsed.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          for x in out:
+              print('\nGAL',x['gal_id'],'title=',x['title'],'tables=',[len(t) for t in x['tables']])
+              print(x['text_head'][:700])
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afir-contract-modification-probe
+          path: probe-contract/**
+          retention-days: 3
