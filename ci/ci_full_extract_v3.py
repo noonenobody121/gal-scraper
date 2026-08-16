@@ -12,7 +12,7 @@ from afir_gal.locality import SirutaGazetteer
 
 OUT=Path('output'); OUT.mkdir(exist_ok=True)
 config=Settings().as_dict(); config.update(request_delay_seconds=.25,timeout_seconds=45,max_retries=4,max_requests_per_run=7000,call_list_max_pages=50,closing_soon_days=7)
-print('=== AFIR FULL NATIONAL EXTRACTION V4 / CLEAN INTERVENTIONS ===',flush=True)
+print('=== AFIR FULL NATIONAL EXTRACTION V4 / CLEAN INTERVENTIONS + CLEAN RAW FIELDS ===',flush=True)
 crawl_error=None; counts={}
 crawler=Crawler(config,OUT)
 try: counts=crawler.full_crawl(strict_national=True)
@@ -53,6 +53,18 @@ try:
         'distinct_gals': store.db.execute('SELECT count(DISTINCT gal_id) FROM interventions').fetchone()[0],
     }
 
+    raw_field_integrity={
+        'total': store.db.execute("SELECT count(*) FROM raw_fields WHERE entity_type='call'").fetchone()[0],
+        'status_table_noise': store.db.execute(
+            "SELECT count(*) FROM raw_fields WHERE entity_type='call' AND ("
+            "field_key LIKE 'nr_crt_descriere_status_data%' OR "
+            "field_key IN ('nr_crt','descriere_status','data'))"
+        ).fetchone()[0],
+        'calls_with_fewer_than_16_fields': store.db.execute(
+            "SELECT count(*) FROM calls c WHERE (SELECT count(*) FROM raw_fields r WHERE r.entity_type='call' AND r.entity_id=c.call_id) < 16"
+        ).fetchone()[0],
+    }
+
     store.export_csvs(OUT/'csv'); export_view_csvs(store,OUT/'csv')
     coverage=store.coverage_report()
     db_counts={k:store.db.execute(q).fetchone()[0] for k,q in {
@@ -62,6 +74,7 @@ try:
     summary={
         'crawl':counts,'crawl_error':crawl_error,'database_counts':db_counts,
         'core_call_missing':missing_core,'intervention_integrity':intervention_integrity,
+        'raw_field_integrity':raw_field_integrity,
         'locality_resolution':locality_counts,'quality_errors':len(errors),'quality_warnings':len(warns),
         'error_codes':dict(Counter(x.code for x in errors)),'warning_codes':dict(Counter(x.code for x in warns)),
         'coverage':coverage
@@ -75,7 +88,8 @@ print(json.dumps(summary,ensure_ascii=False,indent=2,default=str),flush=True)
 
 core_complete=all(v==0 for v in missing_core.values())
 interventions_clean=(intervention_integrity['uncoded']==0 and intervention_integrity['footer_or_navigation_noise']==0)
-ok=(crawl_error is None and counts.get('coverage_gate_passed') and coverage.get('complete') and len(errors)==0 and core_complete and interventions_clean)
+raw_fields_clean=(raw_field_integrity['status_table_noise']==0 and raw_field_integrity['calls_with_fewer_than_16_fields']==0)
+ok=(crawl_error is None and counts.get('coverage_gate_passed') and coverage.get('complete') and len(errors)==0 and core_complete and interventions_clean and raw_fields_clean)
 if not ok:
     print('FULL EXTRACTION FAILED STRICT QUALITY/COVERAGE/SCHEMA GATE',file=sys.stderr,flush=True); sys.exit(4)
-print('FULL EXTRACTION RECONCILED: coverage complete; core fields complete; interventions clean; zero quality errors',flush=True)
+print('FULL EXTRACTION RECONCILED: coverage complete; core fields complete; interventions clean; raw fields clean; zero quality errors',flush=True)
