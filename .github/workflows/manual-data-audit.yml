@@ -1,0 +1,138 @@
+name: AFIR independent manual data audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/manual-data-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch fresh AFIR pages independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p manual-audit/calls manual-audit/gals manual-audit/lists
+          date -u +'%Y-%m-%dT%H:%M:%SZ' | tee manual-audit/fetched_at_utc.txt
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36 independent-QA'
+          calls=(
+            a4a639b9-d053-4917-a007-e0a7431a66f3
+            ca266304-5d9c-41a6-9bb5-4ce50f199760
+            da545f9d-d611-4ce1-90cd-629f55611f75
+            35eeecab-0bcd-449c-a188-f6a09d803fb8
+            d6bd9223-394a-4553-b9b6-80b53eeca466
+            585a11ec-b52c-42b8-a058-6a4b1b82fc7d
+            329b6478-a254-4f86-980a-eacef887b9b9
+            66c81dfa-c7e3-46f8-9c69-c515b6b85598
+            b0c9b85a-b139-4a4f-8992-a1d44a79e180
+            c9363a7f-ee6f-4c0e-8b80-a0c1aa3df987
+            266744b4-7784-4faa-a220-5c50a6753f99
+            a843a91a-5aef-4e23-9ee6-52ceb7e9feba
+            99f3cf55-8759-43b8-ba62-8e93f46a0c79
+            d5b743c9-d727-4058-ab17-b8b88f9f14e1
+            f880c822-bf20-4f39-b334-3165f5d01244
+            5a840312-4ee7-4781-a425-f6665f2b0406
+            8371eb90-e0d7-447c-8dc2-6a84e59ed0e2
+            a2aa514b-df52-4d46-bf4b-407ced2fa939
+            eaaacf0c-9c66-4266-a90e-350eb8912342
+            8b0682bd-9aaf-490b-88b8-01cbd4aca91c
+          )
+          for id in "${calls[@]}"; do
+            curl -fLsS --retry 3 --retry-delay 1 -A "$UA" \
+              "https://gal.afir.ro/GalApel/VizualizareApelSelectie?idApelSelectie=$id&nrPagina=1" \
+              -o "manual-audit/calls/$id.html"
+            sleep 0.15
+          done
+
+          gals=(
+            d4228448-2a44-455a-a7e2-432cd7775c18
+            842fbd5d-de19-4749-a068-e123a428d7d3
+            7d22fb3f-4899-4c0f-b8a3-de21aaf05c5d
+            8c4a9e5d-2ae5-429e-9fc6-b3ac3777bf9a
+            9fca4f67-eba1-483c-980f-eb2ba73a0b81
+            e4a86917-7b56-432b-8d6e-1b9fd94f0b78
+            d1afb996-73b6-49a2-bc65-0481ec192835
+            89ce6b1b-cbd1-4be1-806f-79e0cbad96a5
+          )
+          for gid in "${gals[@]}"; do
+            curl -fLsS --retry 3 --retry-delay 1 -A "$UA" \
+              "https://gal.afir.ro/GalApel/Lista?g=$gid&nrPagina=1" \
+              -o "manual-audit/gals/$gid.html"
+            curl -fLsS --retry 3 --retry-delay 1 -A "$UA" \
+              "https://gal.afir.ro/GalApel/ListaApeluri?galId=$gid&cautareApelSelectie=&nrPagina=1&esteRequestDeLaTriggerOnLoad=true" \
+              -o "manual-audit/lists/$gid.html"
+            sleep 0.15
+          done
+
+      - name: Independently extract visible fields for review
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q beautifulsoup4
+          python - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          import json, re
+
+          root=Path('manual-audit')
+          call_out=[]
+          for p in sorted((root/'calls').glob('*.html')):
+              soup=BeautifulSoup(p.read_text(encoding='utf-8',errors='ignore'),'html.parser')
+              fields={}
+              for div in soup.select('div.d-flex.gap-2'):
+                  spans=div.find_all('span', recursive=False)
+                  if len(spans)>=2:
+                      label=' '.join(spans[0].get_text(' ',strip=True).replace(':','').split())
+                      value=' '.join(spans[1].get_text(' ',strip=True).split())
+                      if label and value:
+                          fields[label]=value
+              statuses=[]
+              for tr in soup.select('table tbody tr'):
+                  cells=[' '.join(x.get_text(' ',strip=True).split()) for x in tr.find_all(['td','th'])]
+                  if len(cells)>=3 and cells[0].isdigit(): statuses.append(cells[:3])
+              call_out.append({'call_id':p.stem,'fields':fields,'statuses':statuses})
+          (root/'live_call_fields.json').write_text(json.dumps(call_out,ensure_ascii=False,indent=2),encoding='utf-8')
+
+          gal_out=[]
+          for p in sorted((root/'gals').glob('*.html')):
+              soup=BeautifulSoup(p.read_text(encoding='utf-8',errors='ignore'),'html.parser')
+              text=' '.join(soup.get_text(' ',strip=True).split())
+              m=re.search(r'GAL\s+(.+?)\s+Cod:\s*(\d+)\s+Cui:\s*([^\s]+)\s+Jude(?:ț|țe):\s*([^\n]+?)(?:\s+Listă utilizatorilor|\s+Către pagina GAL|\s+Adresa de email)',text)
+              meta={'gal_id':p.stem,'raw_head':text[:1200]}
+              if m:
+                  meta.update({'name':m.group(1).strip(),'authorization_code':int(m.group(2)),'cui':m.group(3).strip(),'counties_raw':m.group(4).strip()})
+              lp=root/'lists'/p.name
+              lsoup=BeautifulSoup(lp.read_text(encoding='utf-8',errors='ignore'),'html.parser')
+              hrefs=[a.get('href','') for a in lsoup.find_all('a')]
+              ids=[]
+              for h in hrefs:
+                  mm=re.search(r'idApelSelectie=([0-9a-fA-F-]{36})',h)
+                  if mm: ids.append(mm.group(1).lower())
+              meta['call_ids']=sorted(set(ids))
+              meta['call_count']=len(meta['call_ids'])
+              gal_out.append(meta)
+          (root/'live_gal_checks.json').write_text(json.dumps(gal_out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print((root/'fetched_at_utc.txt').read_text().strip())
+          print('calls_fetched',len(call_out))
+          for x in call_out:
+              f=x['fields']
+              print('CALL',x['call_id'], '|', f.get('Titlu anunț'), '|', f.get('Data limită de depunere proiecte'), '|', f.get('Apel de selecție în derulare'), '|', f.get('Fondurile disponibile raportate la plafonul de depunere'), '|', f.get('Numar proiecte depuse'))
+          print('gals_fetched',len(gal_out))
+          for x in gal_out:
+              print('GAL',x.get('authorization_code'),x.get('name'),'calls=',x['call_count'])
+          PY
+
+      - name: Upload independent audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: afir-independent-manual-audit
+          path: manual-audit/**
+          retention-days: 3
