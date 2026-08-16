@@ -1,0 +1,44 @@
+name: AFIR independent territory audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/manual-territory-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch fresh GAL territory pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p territory-audit
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > territory-audit/fetched_at_utc.txt
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36 independent-QA'
+          gals=(
+            d4228448-2a44-455a-a7e2-432cd7775c18
+            842fbd5d-de19-4749-a068-e123a428d7d3
+            7d22fb3f-4899-4c0f-b8a3-de21aaf05c5d
+            8c4a9e5d-2ae5-429e-9fc6-b3ac3777bf9a
+            9fca4f67-eba1-483c-980f-eb2ba73a0b81
+            e4a86917-7b56-432b-8d6e-1b9fd94f0b78
+            d1afb996-73b6-49a2-bc65-0481ec192835
+            89ce6b1b-cbd1-4be1-806f-79e0cbad96a5
+          )
+          for gid in "${gals[@]}"; do
+            curl -fLsS --retry 3 --retry-delay 1 -A "$UA" "https://gal.afir.ro/Gal?g=$gid" -o "territory-audit/$gid.html"
+            sleep 0.15
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afir-independent-territory-audit
+          path: territory-audit/**
+          retention-days: 3
