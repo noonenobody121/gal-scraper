@@ -9,6 +9,7 @@ on:
       - 'ci/apply_live_fixes.py'
       - 'ci/apply_final_fixes.py'
       - 'ci/apply_cleanup_fixes.py'
+      - 'ci/apply_storage_fixes.py'
       - 'ci/test_cleanup_regression.py'
       - 'ci/ci_full_extract_v3.py'
       - '.github/workflows/full-extract.yml'
@@ -43,6 +44,7 @@ jobs:
           python ci/apply_live_fixes.py ci-src
           python ci/apply_final_fixes.py ci-src
           python ci/apply_cleanup_fixes.py ci-src
+          python ci/apply_storage_fixes.py ci-src
           cp ci/ci_full_extract_v3.py ci-src/ci_full_extract.py
           cp ci/test_cleanup_regression.py ci-src/test_cleanup_regression.py
           python -m compileall -q ci-src/afir_gal ci-src/ci_full_extract.py ci-src/test_cleanup_regression.py
@@ -50,6 +52,7 @@ jobs:
           grep -q 'data-gal-id' ci-src/afir_gal/manifest.py
           grep -q 'intervention_list' ci-src/afir_gal/parsers.py
           grep -q 'UNCODED_INTERVENTION' ci-src/afir_gal/quality.py
+          grep -q 'locality NOT IN' ci-src/afir_gal/storage.py
 
       - name: Install dependencies and SIRUTA registry mirror
         working-directory: ci-src
