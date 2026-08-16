@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Fetch fresh GAL territory pages
         shell: bash
         run: |
@@ -37,6 +40,47 @@ jobs:
             curl -fLsS --retry 3 --retry-delay 1 -A "$UA" "https://gal.afir.ro/Gal?g=$gid" -o "territory-audit/$gid.html"
             sleep 0.15
           done
+
+      - name: Independently validate live intervention section boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip -q install beautifulsoup4 lxml
+          python - <<'PY'
+          from bs4 import BeautifulSoup, Tag
+          from pathlib import Path
+          import json, re
+
+          report=[]
+          for p in sorted(Path('territory-audit').glob('*.html')):
+              soup=BeautifulSoup(p.read_text(encoding='utf-8',errors='replace'),'lxml')
+              heading=None
+              for h in soup.find_all(['h1','h2','h3','h4','h5','h6']):
+                  key=h.get_text(' ',strip=True).casefold().replace('ț','t').replace('ţ','t')
+                  if 'lista intervent' in key:
+                      heading=h; break
+              if heading is None:
+                  raise SystemExit(f'Missing Lista Intervenții heading in {p.name}')
+              ul=None
+              for sibling in heading.next_siblings:
+                  if not isinstance(sibling,Tag): continue
+                  if sibling.name in {'h1','h2','h3','h4','h5','h6'}: break
+                  if sibling.name=='ul': ul=sibling; break
+                  candidate=sibling.find('ul')
+                  if candidate is not None: ul=candidate; break
+              if ul is None:
+                  raise SystemExit(f'Missing bounded intervention list in {p.name}')
+              rows=[' '.join(li.get_text(' ',strip=True).split()).lstrip('• ') for li in ul.find_all('li',recursive=False)]
+              rows=[x for x in rows if x]
+              bad=[x for x in rows if not re.match(r'^[A-Za-z]+\d+\s*-',x)]
+              noise=[x for x in rows if 'urmăriți-ne pe' in x.casefold() or 'lansată în data de' in x.casefold()]
+              if bad or noise:
+                  raise SystemExit(f'Invalid intervention rows in {p.name}: bad={bad} noise={noise}')
+              report.append({'gal_id':p.stem,'intervention_count':len(rows),'interventions':rows})
+          Path('territory-audit/intervention_scope_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('Independent territory intervention audit PASS:',sum(x['intervention_count'] for x in report),'rows across',len(report),'GALs')
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: afir-independent-territory-audit
